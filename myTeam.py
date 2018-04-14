@@ -16,6 +16,7 @@ from captureAgents import CaptureAgent
 import random, time, util
 from util import nearestPoint
 from game import Directions
+import numpy as np
 import game
 
 #################
@@ -23,7 +24,7 @@ import game
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'DummyAgent', second = 'OffensiveAgent1'):
+               first = 'DummyAgent', second = 'DefensiveReflexAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -72,10 +73,21 @@ class DummyAgent(CaptureAgent):
     on initialization time, please take a look at
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
+    self.gamma=0.95
+
+    self.alpha=0.01
+    self.old_q = None
+    self.epsilon = 0.2
+    self.weights = [100, -1, 0]
+    self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
+    self.old_features = None
     '''
     Your initialization code goes here, if you need any.
     '''
+
+  def update_weights(self,Q_plus):
+      self.weights=self.weights+self.alpha*(Q_plus-self.old_q)*self.old_features
 
 
   def chooseAction(self, gameState):
@@ -83,12 +95,77 @@ class DummyAgent(CaptureAgent):
     Picks among actions randomly.
     """
     actions = gameState.getLegalActions(self.index)
+    # You can profile your evaluation time by uncommenting these lines
+    # start = time.time()
+    values = [self.evaluate(gameState, a) for a in actions]
+    # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+    if np.random.random() > self.epsilon:
+        Q = max(values)
+        bestActions = [a for a, v in zip(actions, values) if v == Q]
+    else:
+        Q = np.random.choice(values)
+        bestActions = [a for a, v in zip(actions, values) if v == Q]
+
+    foodLeft = len(self.getFood(gameState).asList())
+
+    action=random.choice(bestActions)
+
+    if len(self.observationHistory)>1:
+        Q_plus=self.getScore(gameState)+self.gamma*Q
+        self.update_weights(Q_plus)
+
+    self.old_q=Q
+    self.old_features=self.getFeatures(gameState,action)
+    self.old_features.normalize()
+    self.old_features=np.array((list(self.old_features.values())))
+    #self.old_features=np.array((list(self.getFeatures(gameState,action).values())))
+
+    return action
+
+  def getSuccessor(self, gameState, action):
+    """
+    Finds the next successor which is a grid position (location tuple).
+    """
+    successor = gameState.generateSuccessor(self.index, action)
+    pos = successor.getAgentState(self.index).getPosition()
+    if pos != nearestPoint(pos):
+      # Only half a grid position was covered
+      return successor.generateSuccessor(self.index, action)
+    else:
+      return successor
+
+  def evaluate(self, gameState, action):
+    """
+    Computes a linear combination of features and feature weights
+    """
+    features = self.getFeatures(gameState, action)
+    weights = self.getWeights(gameState, action)
+    return features * weights
+
+
+  def getFeatures(self, gameState, action):
+    features = util.Counter()
+    successor = self.getSuccessor(gameState, action)
+    foodList = self.getFood(successor).asList()
+    features['successorScore'] = -len(foodList)  # self.getScore(successor)
+
+    # Compute distance to the nearest food
+
+    if len(foodList) > 0:  # This should always be True,  but better safe than sorry
+        myPos = successor.getAgentState(self.index).getPosition()
+        minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+        features['distanceToFood'] = minDistance
+
+    features['bias'] = 1
+    return features
+
+  def getWeights(self, gameState, action):
+    return {'successorScore': self.weights[0], 'distanceToFood': self.weights[1], 'bias': self.weights[-1]}
 
     '''
     You should change this in your own agent.
     '''
 
-    return random.choice(actions)
 
 class ReflexCaptureAgent(CaptureAgent):
 
@@ -113,7 +190,6 @@ class ReflexCaptureAgent(CaptureAgent):
     '''
     self.start=gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
-    a=0
 
 
   def chooseAction(self, gameState):
@@ -121,14 +197,15 @@ class ReflexCaptureAgent(CaptureAgent):
     Picks among the actions with the highest Q(s,a).
     """
     actions = gameState.getLegalActions(self.index)
-
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
     values = [self.evaluate(gameState, a) for a in actions]
     # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
-
     maxValue = max(values)
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+
+
+
 
     foodLeft = len(self.getFood(gameState).asList())
 
@@ -164,25 +241,6 @@ class ReflexCaptureAgent(CaptureAgent):
     features = self.getFeatures(gameState, action)
     weights = self.getWeights(gameState, action)
     return features * weights
-
-class OffensiveAgent1(ReflexCaptureAgent):
-    def getFeatures(self, gameState, action):
-        features = util.Counter()
-        successor = self.getSuccessor(gameState, action)
-        foodList = self.getFood(successor).asList()
-        features['successorScore'] = -len(foodList)  # self.getScore(successor)
-
-        # Compute distance to the nearest food
-
-        if len(foodList) > 0:  # This should always be True,  but better safe than sorry
-            myPos = successor.getAgentState(self.index).getPosition()
-            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-            features['distanceToFood'] = minDistance
-        return features
-
-    def getWeights(self, gameState, action):
-        return {'successorScore': 100, 'distanceToFood': -1}
-
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
   """
