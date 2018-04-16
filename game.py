@@ -713,7 +713,6 @@ class Game:
             if _BOINC_ENABLED:
                 boinc.set_fraction_done(self.getProgress())
 
-        a=0
         # inform a learning agent of the game result
         for agentIndex, agent in enumerate(self.agents):
             if "final" in dir( agent ) :
@@ -725,7 +724,6 @@ class Game:
                 agent.final( self.state )
 
                 self.unmute()
-                a=0
                 '''except Exception as data:
                     if not self.catchExceptions: raise
                     self._agentCrash(agentIndex)

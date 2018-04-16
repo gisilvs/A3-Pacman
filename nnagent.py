@@ -105,7 +105,7 @@ class DQN(nn.Module):
         x = self.fc2(x)
         return x
 
-write_mem = open('replay_memory.obj', 'w')
+
 use_cuda = False
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
@@ -113,7 +113,7 @@ ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 policy_net = DQN()
 target_net = DQN()
-policy_net=torch.load('policy_net')
+#policy_net=torch.load('policy_net')
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
@@ -121,13 +121,13 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters(),lr=0.01)
-memory = ReplayMemory(10000)
+optimizer = optim.RMSprop(policy_net.parameters(),lr=0.001)
+memory = ReplayMemory(5000)
 with open("memo.file", "rb") as f:
     memory = pickle.load(f)
 
 
-BATCH_SIZE = 20
+BATCH_SIZE = 128
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
