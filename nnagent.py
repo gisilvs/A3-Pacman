@@ -25,6 +25,46 @@ import torch.optim as optim
 from collections import namedtuple
 from torch.autograd import Variable
 
+def optimize_model():
+    if len(memory) < BATCH_SIZE:
+        return
+    transitions = memory.sample(BATCH_SIZE)
+    # Transpose the batch (see http://stackoverflow.com/a/19343/3343043 for
+    # detailed explanation).
+    batch = Transition(*zip(*transitions))
+
+    # Compute a mask of non-final states and concatenate the batch elements
+    non_final_mask = ByteTensor(tuple(map(lambda s: s is not None,
+                                          batch.next_state)))
+    non_final_next_states = Variable(torch.cat([s for s in batch.next_state
+                                                if s is not None]),
+                                     volatile=True)
+    state_batch = Variable(torch.cat(batch.state))
+    action_batch = Variable(torch.cat(batch.action))
+    reward_batch = Variable(torch.cat(batch.reward))
+
+    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+    # columns of actions taken
+    state_action_values = policy_net(state_batch).gather(1, action_batch)
+
+    # Compute V(s_{t+1}) for all next states.
+    next_state_values = Variable(torch.zeros(BATCH_SIZE).type(Tensor))
+    next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
+    # Compute the expected Q values
+    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    # Undo volatility (which was used to prevent unnecessary gradients)
+    expected_state_action_values = Variable(expected_state_action_values.data)
+
+    # Compute Huber loss
+    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+
+    # Optimize the model
+    optimizer.zero_grad()
+    loss.backward()
+    for param in policy_net.parameters():
+        param.grad.data.clamp_(-1, 1)
+    optimizer.step()
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -82,11 +122,12 @@ optimizer = optim.RMSprop(policy_net.parameters())
 memory = ReplayMemory(10000)
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 20
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
 TARGET_UPDATE = 10
+GAMMA = 0.9
 
 #################
 # Team creation #
@@ -119,6 +160,12 @@ class NNAgent(CaptureAgent):
   You should look at baselineTeam.py for more details about how to
   create an agent as this is the bare minimum.
   """
+  def update_reward(self,gameState):
+      self.reward=0
+      self.reward+=0.01*self.getScore(gameState)
+      self.reward-=0.001*len(self.getFood(gameState).asList())
+      self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
+      self.reward-=0.0001*self.time
 
   def registerInitialState(self, gameState):
     """
@@ -139,7 +186,8 @@ class NNAgent(CaptureAgent):
     on initialization time, please take a look at
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
-
+    self.old_state= None
+    self.old_action=None
     self.name='Steven'
     self.gamma=0.95
     self.reward=None
@@ -220,6 +268,18 @@ class NNAgent(CaptureAgent):
         else:
             value_list.remove(action)
 
+  def action_to_int(self,action):
+      if action =='North':
+          return 0
+      elif action =='South':
+          return 1
+      elif action =='East':
+          return 2
+      elif action =='West':
+          return 3
+      elif action =='Stop':
+          return 4
+
 
 
 
@@ -228,37 +288,31 @@ class NNAgent(CaptureAgent):
     Picks among actions randomly.
     """
     self.time += 1
+    state = self.state_to_input(gameState)
+    if self.time > 1:
+        self.update_reward(gameState)
+        reward = Tensor([self.reward])
+        memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]), torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
+        optimize_model()
+        if self.time % TARGET_UPDATE == 0:
+            target_net.load_state_dict(policy_net.state_dict())
+
+
     actions = gameState.getLegalActions(self.index)
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
     # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
     Q = policy_net(
         # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
-        Variable(torch.from_numpy(self.state_to_input(gameState)), volatile=True).type(FloatTensor)).data
+        Variable(torch.from_numpy(state), volatile=True).type(FloatTensor)).data
     Q = Q.numpy()
     if np.random.random() > self.epsilon:
         action=self.pick_best_allowed_action(Q,actions)
     else:
-        q = np.random.choice(Q)
-        bestActions = [a for a, v in zip(actions, Q) if v == q]
-        action = random.choice(bestActions)
+        action = random.choice(actions)
 
-
-
-
-    if self.time > 1:
-        self.update_reward(gameState)
-        Q_plus = self.reward + self.gamma * Q
-        self.update_weights(Q_plus)
-    self.old_q = Q
-    self.old_features = self.getFeatures(gameState, action)
-    # self.old_features.normalize()
-    self.old_features = np.array((list(self.old_features.values())))
-    if gameState.isOver():
-        a = 0
-    if self.final(gameState):
-        a = 0
-    # self.old_features=np.array((list(self.getFeatures(gameState,action).values())))
+    self.old_state=state
+    self.old_action=self.action_to_int(action)
     return action
 
   def evaluate(self, gameState, action):
