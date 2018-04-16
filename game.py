@@ -719,7 +719,7 @@ class Game:
             if "final" in dir( agent ) :
 
                 if agent.name=='Steven':
-                    agent.(self.rules.winner)
+                    agent.finalUpdate(self.rules.winner)
 
                 self.mute(agentIndex)
                 agent.final( self.state )

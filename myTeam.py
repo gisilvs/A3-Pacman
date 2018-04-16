@@ -97,7 +97,10 @@ class DummyAgent(CaptureAgent):
       self.reward-=0.1*self.time
 
   def update_weights(self,Q_plus):
-      self.weights=self.weights+self.alpha*(Q_plus-self.old_q)*self.old_features
+      try:
+        self.weights=self.weights+self.alpha*(Q_plus-self.old_q)*self.old_features
+      except:
+          a=0
       np.savetxt('weights.txt', self.weights)
 
   def chooseAction(self, gameState):
@@ -177,6 +180,7 @@ class DummyAgent(CaptureAgent):
 
 
   def getFeatures(self, gameState, action):
+
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
     foodList = self.getFood(successor).asList()
@@ -202,8 +206,6 @@ class DummyAgent(CaptureAgent):
     dists=successor.getAgentDistances()
     opponents=self.getOpponents(successor)
     features['distance1']=dists[opponents[0]]
-    if dists[opponents[0]] ==0 or dists[opponents[1]] == 0:
-        a=0
     #features['scared_0']=successor.getAgentState(opponents[0]).scaredTimer
     #features['scared_1'] = successor.getAgentState(opponents[0]).scaredTimer
     if successor.getAgentState(opponents[0]).isPacman:
@@ -220,10 +222,9 @@ class DummyAgent(CaptureAgent):
     if len(foodList) > 0:  # This should always be True,  but better safe than sorry
         myPos = successor.getAgentState(self.index).getPosition()
         minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-        if not minDistance:
-            features['distanceToFood'] = -1
-        else:
-            features['distanceToFood'] = minDistance
+        features['distanceToFood'] = minDistance
+    else:
+        features['distanceToFood'] = -1
 
     # Computes distance to invaders we can see
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]

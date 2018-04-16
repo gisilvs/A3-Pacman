@@ -18,6 +18,75 @@ from util import nearestPoint
 from game import Directions
 import numpy as np
 import game
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from collections import namedtuple
+from torch.autograd import Variable
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+
+class ReplayMemory(object):
+
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.memory = []
+        self.position = 0
+
+    def push(self, *args):
+        """Saves a transition."""
+        if len(self.memory) < self.capacity:
+            self.memory.append(None)
+        self.memory[self.position] = Transition(*args)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
+
+
+
+class DQN(nn.Module):
+
+    def __init__(self):
+        super(DQN, self).__init__()
+        #todo: sort shapes
+        self.fc1 = nn.Linear(1844, 50)
+        self.fc2 = nn.Linear(50, 5)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+use_cuda = False
+FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
+ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
+Tensor = FloatTensor
+policy_net = DQN()
+target_net = DQN()
+target_net.load_state_dict(policy_net.state_dict())
+target_net.eval()
+
+if use_cuda:
+    policy_net.cuda()
+    target_net.cuda()
+
+optimizer = optim.RMSprop(policy_net.parameters())
+memory = ReplayMemory(10000)
+
+
+BATCH_SIZE = 128
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 200
+TARGET_UPDATE = 10
 
 #################
 # Team creation #
@@ -70,6 +139,7 @@ class NNAgent(CaptureAgent):
     on initialization time, please take a look at
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
+
     self.name='Steven'
     self.gamma=0.95
     self.reward=None
@@ -140,6 +210,16 @@ class NNAgent(CaptureAgent):
 
     return wall
 
+  def pick_best_allowed_action(self,Q_values,allowed_actions):
+      actions=['North','South','East','West','Stop']
+      value_list=list(zip(actions,Q_values))
+      while True:
+        action=max(value_list, key=lambda x: x[1])
+        if action[0] in allowed_actions:
+            return action[0]
+        else:
+            value_list.remove(action)
+
 
 
 
@@ -147,23 +227,24 @@ class NNAgent(CaptureAgent):
     """
     Picks among actions randomly.
     """
-    self.weights = np.loadtxt('weights.txt')
     self.time += 1
     actions = gameState.getLegalActions(self.index)
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
-    values = [self.evaluate(gameState, a) for a in actions]
     # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+    Q = policy_net(
+        # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
+        Variable(torch.from_numpy(self.state_to_input(gameState)), volatile=True).type(FloatTensor)).data
+    Q = Q.numpy()
     if np.random.random() > self.epsilon:
-        Q = max(values)
-        bestActions = [a for a, v in zip(actions, values) if v == Q]
+        action=self.pick_best_allowed_action(Q,actions)
     else:
-        Q = np.random.choice(values)
-        bestActions = [a for a, v in zip(actions, values) if v == Q]
+        q = np.random.choice(Q)
+        bestActions = [a for a, v in zip(actions, Q) if v == q]
+        action = random.choice(bestActions)
 
-    foodLeft = len(self.getFood(gameState).asList())
 
-    action = random.choice(bestActions)
+
 
     if self.time > 1:
         self.update_reward(gameState)
