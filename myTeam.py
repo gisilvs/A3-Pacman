@@ -24,7 +24,7 @@ import game
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'DummyAgent', second = 'DefensiveReflexAgent'):
+               first = 'DummyAgent', second = 'DummyAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -73,12 +73,15 @@ class DummyAgent(CaptureAgent):
     on initialization time, please take a look at
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
+    self.name='Steven'
     self.gamma=0.95
-
-    self.alpha=0.01
+    self.reward=None
+    self.time=0
+    self.alpha=0.00001
     self.old_q = None
     self.epsilon = 0.2
-    self.weights = [100, -1, 0]
+    self.weights = np.loadtxt('weights.txt')#np.random.normal(0,0.1,3)
+
     self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
     self.old_features = None
@@ -86,14 +89,23 @@ class DummyAgent(CaptureAgent):
     Your initialization code goes here, if you need any.
     '''
 
+  def update_reward(self,gameState):
+      self.reward=0
+      self.reward+=10*self.getScore(gameState)
+      self.reward-=len(self.getFood(gameState).asList())
+      self.reward +=len(self.getFoodYouAreDefending(gameState).asList())
+      self.reward-=0.1*self.time
+
   def update_weights(self,Q_plus):
       self.weights=self.weights+self.alpha*(Q_plus-self.old_q)*self.old_features
-
+      np.savetxt('weights.txt', self.weights)
 
   def chooseAction(self, gameState):
     """
     Picks among actions randomly.
     """
+    self.weights = np.loadtxt('weights.txt')
+    self.time+=1
     actions = gameState.getLegalActions(self.index)
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
@@ -110,18 +122,39 @@ class DummyAgent(CaptureAgent):
 
     action=random.choice(bestActions)
 
-    if len(self.observationHistory)>1:
-        Q_plus=self.getScore(gameState)+self.gamma*Q
+    if self.time>1:
+        self.update_reward(gameState)
+        Q_plus=self.reward+self.gamma*Q
         self.update_weights(Q_plus)
-
     self.old_q=Q
     self.old_features=self.getFeatures(gameState,action)
-    self.old_features.normalize()
+    #self.old_features.normalize()
     self.old_features=np.array((list(self.old_features.values())))
+    if gameState.isOver():
+        a=0
+    if self.final(gameState):
+        a=0
     #self.old_features=np.array((list(self.getFeatures(gameState,action).values())))
-
     return action
 
+  def finalUpdate(self,winner):
+      self.weights = np.loadtxt('weights.txt')
+      if winner=='Red':
+        if self.red:
+            Q_plus=+100
+        else:
+            Q_plus= -100
+        self.update_weights(Q_plus)
+      elif winner=='Blue':
+          if self.red:
+              Q_plus = -100
+          else:
+              Q_plus = +100
+          self.update_weights(Q_plus)
+      else:
+          self.update_weights(-10)
+
+      np.savetxt('weights.txt',self.weights)
   def getSuccessor(self, gameState, action):
     """
     Finds the next successor which is a grid position (location tuple).
@@ -147,20 +180,64 @@ class DummyAgent(CaptureAgent):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
     foodList = self.getFood(successor).asList()
-    features['successorScore'] = -len(foodList)  # self.getScore(successor)
+    otherfood= self.getFoodYouAreDefending(successor).asList()
+    features['successorScore'] = -len(foodList)+len(otherfood)  # self.getScore(successor)
+    #features['scared']=successor.getAgentState(self.index).scaredTimer
 
+    if successor.getAgentState(self.index).isPacman:
+        features['ghost']=0
+    else:
+        features['ghost']=1
+    team=self.getTeam(successor)
+    if self.index != team[0]:
+        mate_idx=team[0]
+    else:
+        mate_idx=team[1]
+
+    if successor.getAgentState(mate_idx).isPacman:
+        features['mate_ghost']=0
+    else:
+        features['mate_ghost']=1
+    #features['scared_mate']=successor.getAgentState(mate_idx).scaredTimer
+    dists=successor.getAgentDistances()
+    opponents=self.getOpponents(successor)
+    features['distance1']=dists[opponents[0]]
+    if dists[opponents[0]] ==0 or dists[opponents[1]] == 0:
+        a=0
+    #features['scared_0']=successor.getAgentState(opponents[0]).scaredTimer
+    #features['scared_1'] = successor.getAgentState(opponents[0]).scaredTimer
+    if successor.getAgentState(opponents[0]).isPacman:
+        features['pac1']=1
+    else:
+        features['pac1']=0
+    if successor.getAgentState(opponents[1]).isPacman:
+        features['pac2']=1
+    else:
+        features['pac2']=0
+    features['distance2']=dists[opponents[1]]
     # Compute distance to the nearest food
 
     if len(foodList) > 0:  # This should always be True,  but better safe than sorry
         myPos = successor.getAgentState(self.index).getPosition()
         minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-        features['distanceToFood'] = minDistance
+        if not minDistance:
+            features['distanceToFood'] = -1
+        else:
+            features['distanceToFood'] = minDistance
+
+    # Computes distance to invaders we can see
+    enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
+    invaders = [a for a in enemies if a.isPacman]
+    #features['numInvaders'] = len(invaders)
 
     features['bias'] = 1
     return features
 
   def getWeights(self, gameState, action):
-    return {'successorScore': self.weights[0], 'distanceToFood': self.weights[1], 'bias': self.weights[-1]}
+    return {'successorScore': self.weights[0],'ghost':self.weights[1], 'mate_ghost':self.weights[2],
+            'distance1': self.weights[3], 'distance2': self.weights[4],
+            'pac1': self.weights[5], 'pac2': self.weights[6],
+            'distanceToFood': self.weights[7],'bias': self.weights[-1]}
 
     '''
     You should change this in your own agent.
@@ -188,6 +265,7 @@ class ReflexCaptureAgent(CaptureAgent):
     on initialization time, please take a look at
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
+    self.name='Alfredo'
     self.start=gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
 

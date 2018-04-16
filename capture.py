@@ -364,6 +364,7 @@ class CaptureRules:
 
   def __init__(self, quiet = False):
     self.quiet = quiet
+    self.winner=None
 
   def newGame( self, layout, agents, display, length, muteAgents, catchExceptions ):
     initState = GameState()
@@ -407,11 +408,15 @@ class CaptureRules:
           print('The Red team has returned at least %d of the opponents\' dots.' % foodToWin)
         else:#if state.getBlueFood().count() > MIN_FOOD and state.getRedFood().count() > MIN_FOOD:
           print('Time is up.')
-          if state.data.score == 0: print('Tie game!')
+          if state.data.score == 0:
+            print('Tie game!')
+            self.winner='Tie'
           else:
             winner = 'Red'
             if state.data.score < 0: winner = 'Blue'
             print('The %s team wins by %d points.' % (winner, abs(state.data.score)))
+            self.winner=winner
+    return self.winner
 
   def getProgress(self, game):
     blue = 1.0 - (game.state.getBlueFood().count() / float(self._initBlueFood))
@@ -423,10 +428,10 @@ class CaptureRules:
 
   def agentCrash(self, game, agentIndex):
     if agentIndex % 2 == 0:
-      eprint("Red agent crashed")
+      print("Red agent crashed",file=sys.stderr)
       game.state.data.score = -1
     else:
-      eprint("Blue agent crashed")
+      print("Blue agent crashed",file=sys.stderr)
       game.state.data.score = 1
 
   def getMaxTotalTime(self, agentIndex):
@@ -915,7 +920,7 @@ def loadAgents(isRed, factory, textgraphics, cmdLineArgs):
 
     module = imp.load_source('player' + str(int(isRed)), factory)
   except (NameError, ImportError):
-    eprint('Error: The team "' + factory + '" could not be loaded! ')
+    print('Error: The team "' + factory + '" could not be loaded! ',file=sys.stderr)
     traceback.print_exc()
     return [None for i in range(2)]
 
@@ -931,7 +936,7 @@ def loadAgents(isRed, factory, textgraphics, cmdLineArgs):
   try:
     createTeamFunc = getattr(module, 'createTeam')
   except AttributeError:
-    eprint('Error: The team "' + factory + '" could not be loaded! ')
+    print('Error: The team "' + factory + '" could not be loaded! ',file=sys.stderr)
     traceback.print_exc()
     return [None for i in range(2)]
 
