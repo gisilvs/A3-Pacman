@@ -24,6 +24,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from collections import namedtuple
 from torch.autograd import Variable
+import pickle
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
@@ -104,6 +105,7 @@ class DQN(nn.Module):
         x = self.fc2(x)
         return x
 
+write_mem = open('replay_memory.obj', 'w')
 use_cuda = False
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
@@ -111,6 +113,7 @@ ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 policy_net = DQN()
 target_net = DQN()
+policy_net=torch.load('policy_net')
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
@@ -118,8 +121,10 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters())
+optimizer = optim.RMSprop(policy_net.parameters(),lr=0.01)
 memory = ReplayMemory(10000)
+with open("memo.file", "rb") as f:
+    memory = pickle.load(f)
 
 
 BATCH_SIZE = 20
@@ -195,8 +200,7 @@ class NNAgent(CaptureAgent):
     self.alpha=0.00001
     self.old_q = None
     self.epsilon = 0.2
-    self.weights = np.loadtxt('weights.txt')#np.random.normal(0,0.1,3)
-    self.old_features = None
+
 
     self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
@@ -315,12 +319,27 @@ class NNAgent(CaptureAgent):
     self.old_action=self.action_to_int(action)
     return action
 
-  def evaluate(self, gameState, action):
-    """
-    Computes a linear combination of features and feature weights
-    """
-    successor=gameState.generateSuccessor(self.index, action)
-    input=self.state_to_input(successor)
-    features = self.getFeatures(gameState, action)
-    weights = self.getWeights(gameState, action)
-    return features * weights
+  def finalUpdate(self,winner,gameState):
+      state = self.state_to_input(gameState)
+      self.update_reward(gameState)
+      if winner=='Red':
+        if self.red:
+            self.reward+=1
+        else:
+            self.reward -= 1
+      elif winner=='Blue':
+          if self.red:
+              self.reward -= 1
+          else:
+              self.reward += 1
+      else:
+          self.reward -= 0.1
+
+      reward = Tensor([self.reward])
+      memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
+                  torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
+      optimize_model()
+      torch.save(policy_net,'policy_net')
+      print(policy_net.state_dict())
+      with open("memo.file", "wb") as f:
+          pickle.dump(memory, f, pickle.HIGHEST_PROTOCOL)
