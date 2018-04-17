@@ -26,6 +26,7 @@ from collections import namedtuple
 from torch.autograd import Variable
 import pickle
 
+
 def optimize_model():
     if len(memory) < BATCH_SIZE:
         return
@@ -66,6 +67,7 @@ def optimize_model():
         param.grad.data.clamp_(-1, 1)
     optimizer.step()
 
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -91,21 +93,25 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-
 class DQN(nn.Module):
 
     def __init__(self):
         super(DQN, self).__init__()
-        #todo: sort shapes
-        self.fc1 = nn.Linear(1844, 50)
-        self.fc2 = nn.Linear(50, 5)
+        # todo: sort shapes
+        self.conv1 = nn.Conv2d(6, 16, 3)
+        self.conv2 = nn.Conv2d(16, 32, 3)
+        self.fc3 = nn.Linear(30 * 14 * 32, 256)
+        self.fc4 = nn.Linear(256, 5)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.fc3(x))
+        x = self.fc4(x)
         return x
 
 
+load = 0
 use_cuda = False
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
@@ -113,7 +119,8 @@ ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 policy_net = DQN()
 target_net = DQN()
-#policy_net=torch.load('policy_net')
+if load == 1:
+    policy_net = torch.load('policy_net')
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
@@ -121,225 +128,236 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters(),lr=0.001)
+optimizer = optim.RMSprop(policy_net.parameters(), lr=0.001)
 memory = ReplayMemory(5000)
-with open("memo.file", "rb") as f:
-    memory = pickle.load(f)
+if load == 1:
+    with open("memo.file", "rb") as f:
+        memory = pickle.load(f)
 
-
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
 TARGET_UPDATE = 10
-GAMMA = 0.9
+GAMMA = 0.99
+
 
 #################
 # Team creation #
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'NNAgent', second = 'NNAgent'):
-  """
-  This function should return a list of two agents that will form the
-  team, initialized using firstIndex and secondIndex as their agent
-  index numbers.  isRed is True if the red team is being created, and
-  will be False if the blue team is being created.
+               first='NNAgent', second='NNAgent'):
+    """
+    This function should return a list of two agents that will form the
+    team, initialized using firstIndex and secondIndex as their agent
+    index numbers.  isRed is True if the red team is being created, and
+    will be False if the blue team is being created.
 
-  As a potentially helpful development aid, this function can take
-  additional string-valued keyword arguments ("first" and "second" are
-  such arguments in the case of this function), which will come from
-  the --redOpts and --blueOpts command-line arguments to capture.py.
-  For the nightly contest, however, your team will be created without
-  any extra arguments, so you should make sure that the default
-  behavior is what you want for the nightly contest.
-  """
+    As a potentially helpful development aid, this function can take
+    additional string-valued keyword arguments ("first" and "second" are
+    such arguments in the case of this function), which will come from
+    the --redOpts and --blueOpts command-line arguments to capture.py.
+    For the nightly contest, however, your team will be created without
+    any extra arguments, so you should make sure that the default
+    behavior is what you want for the nightly contest.
+    """
 
-  # The following line is an example only; feel free to change it.
-  return [eval(first)(firstIndex), eval(second)(secondIndex)]
+    # The following line is an example only; feel free to change it.
+    return [eval(first)(firstIndex), eval(second)(secondIndex)]
 
 
 class NNAgent(CaptureAgent):
-  """
-  A Dummy agent to serve as an example of the necessary agent structure.
-  You should look at baselineTeam.py for more details about how to
-  create an agent as this is the bare minimum.
-  """
-  def update_reward(self,gameState):
-      self.reward=0
-      self.reward+=0.01*self.getScore(gameState)
-      self.reward-=0.001*len(self.getFood(gameState).asList())
-      self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
-      self.reward-=0.0001*self.time
-
-  def registerInitialState(self, gameState):
     """
-    This method handles the initial setup of the
-    agent to populate useful fields (such as what team
-    we're on).
-
-    A distanceCalculator instance caches the maze distances
-    between each pair of positions, so your agents can use:
-    self.distancer.getDistance(p1, p2)
-
-    IMPORTANT: This method may run for at most 15 seconds.
+    A Dummy agent to serve as an example of the necessary agent structure.
+    You should look at baselineTeam.py for more details about how to
+    create an agent as this is the bare minimum.
     """
 
-    '''
-    Make sure you do not delete the following line. If you would like to
-    use Manhattan distances instead of maze distances in order to save
-    on initialization time, please take a look at
-    CaptureAgent.registerInitialState in captureAgents.py.
-    '''
-    self.old_state= None
-    self.old_action=None
-    self.name='Steven'
-    self.gamma=0.95
-    self.reward=None
-    self.time=0
-    self.alpha=0.00001
-    self.old_q = None
-    self.epsilon = 0.2
+    def update_reward(self, gameState):
+        foodList = self.getFood(gameState).asList()
+        myPos = gameState.getAgentState(self.index).getPosition()
+        minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+        if minDistance < self.last_distance:
+            self.reward += 1
+        else:
+            self.reward -= 0.001
+        '''
+  
+        self.reward -= 0.1 * minDistance
+        self.reward+=0.01*self.getScore(gameState)
+        self.reward-=0.001*len(self.getFood(gameState).asList())
+        self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
+        self.reward-=0.00001*self.time'''
 
+    def registerInitialState(self, gameState):
+        """
+        This method handles the initial setup of the
+        agent to populate useful fields (such as what team
+        we're on).
 
-    self.start = gameState.getAgentPosition(self.index)
-    CaptureAgent.registerInitialState(self, gameState)
+        A distanceCalculator instance caches the maze distances
+        between each pair of positions, so your agents can use:
+        self.distancer.getDistance(p1, p2)
 
-    '''
-    Your initialization code goes here, if you need any.
-    '''
+        IMPORTANT: This method may run for at most 15 seconds.
+        """
 
-  def state_to_input(self,gameState):
-    rows=len(gameState.data.layout.walls.data)
-    cols=len(gameState.data.layout.walls.data[0])
-    wall=np.zeros(rows*cols,dtype=int)
-    count=0
-    for w_r in gameState.data.layout.walls.data:
-        for w_c in w_r:
-            if w_c is True:
-                wall[count]=1
-            count+=1
-    food=np.zeros((rows,cols),dtype=int)
-    for capsule in gameState.data.capsules:
-        food[capsule[0],capsule[1]]=-1
-    food=food.reshape(-1,1)
-    count=0
-    for f_r in gameState.data.food:
-        for f_c in f_r:
-            if food[count] == 0:
-                if f_c is True:
-                    food[count]=1
-            count+=1
-    wall=np.append(wall,food)
-    agents=np.zeros((rows,cols),dtype=int)
-    for i in range(4):
-        pos=gameState.getAgentPosition(i)
-        if pos:
-            if gameState.isOnRedTeam(i):
-                if self.red:
-                    agents[pos[0],pos[1]]=1
+        '''
+        Make sure you do not delete the following line. If you would like to
+        use Manhattan distances instead of maze distances in order to save
+        on initialization time, please take a look at
+        CaptureAgent.registerInitialState in captureAgents.py.
+        '''
+        self.old_state = None
+        self.old_action = None
+        self.name = 'Steven'
+        self.gamma = 0.95
+        self.reward = 0
+        self.time = 0
+        # self.alpha=0.00001
+        self.old_q = None
+        self.epsilon = 0.1
+        self.last_distance = np.inf
+
+        self.start = gameState.getAgentPosition(self.index)
+        CaptureAgent.registerInitialState(self, gameState)
+
+        '''
+        Your initialization code goes here, if you need any.
+        '''
+
+    def state_to_input(self, gameState):
+        walls = np.array(gameState.data.layout.walls.data, dtype=int)
+        capsules = np.zeros(walls.shape, dtype=int)
+        for capsule in gameState.data.capsules:
+            capsules[capsule[0], capsule[1]] = 1
+        food = np.array(gameState.data.food.data, dtype=int)
+
+        agents = np.zeros((rows, cols), dtype=int)
+        for i in range(4):
+            pos = gameState.getAgentPosition(i)
+            if pos:
+                if gameState.isOnRedTeam(i):
+                    if self.red:
+                        agents[pos[0], pos[1]] = 1
+                    else:
+                        agents[pos[0], pos[1]] = -1
                 else:
-                    agents[pos[0], pos[1]] = -1
+                    if self.red:
+                        agents[pos[0], pos[1]] = -1
+                    else:
+                        agents[pos[0], pos[1]] = 1
+        # todo:add probabilities
+        agents = agents.reshape(-1, 1)
+        wall = np.append(wall, agents)
+        agent_state = np.zeros(4, dtype=int)
+        scared = np.zeros(4, dtype=int)
+        for i in range(4):
+            if gameState.getAgentState(i).isPacman:
+                agent_state[i] = 1
             else:
-                if self.red:
-                    agents[pos[0],pos[1]]=-1
-                else:
-                    agents[pos[0], pos[1]] = 1
-    #todo:add probabilities
-    agents=agents.reshape(-1,1)
-    wall=np.append(wall,agents)
-    agent_state=np.zeros(4,dtype=int)
-    scared=np.zeros(4,dtype=int)
-    for i in range(4):
-        if gameState.getAgentState(i).isPacman:
-            agent_state[i]=1
+                agent_state[i] = -1
+            if gameState.getAgentState(i).scaredTimer > 0:
+                scared[i] = 1
+        wall = np.append(wall, agent_state)
+        wall = np.append(wall, scared)
+
+        return wall
+
+    def pick_best_allowed_action(self, Q_values, allowed_actions):
+        actions = ['North', 'South', 'East', 'West', 'Stop']
+        value_list = list(zip(actions, Q_values))
+        while True:
+            action = max(value_list, key=lambda x: x[1])
+            if action[0] in allowed_actions:
+                return action[0]
+            else:
+                value_list.remove(action)
+
+    def action_to_int(self, action):
+        if action == 'North':
+            return 0
+        elif action == 'South':
+            return 1
+        elif action == 'East':
+            return 2
+        elif action == 'West':
+            return 3
+        elif action == 'Stop':
+            return 4
+
+    def index_to_action(self, index):
+        actions = ['North', 'South', 'East', 'West', 'Stop']
+        return actions[index]
+
+    def chooseAction(self, gameState):
+        """
+        Picks among actions randomly.
+        """
+        self.time += 1
+        state = self.state_to_input(gameState)
+        if self.time > 1:
+            self.update_reward(gameState)
+            reward = Tensor([self.reward])
+            memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
+                        torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
+            optimize_model()
+            if self.time % TARGET_UPDATE == 0:
+                target_net.load_state_dict(policy_net.state_dict())
+
+        actions = gameState.getLegalActions(self.index)
+        # You can profile your evaluation time by uncommenting these lines
+        # start = time.time()
+        # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+        Q = policy_net(
+            # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
+            Variable(torch.from_numpy(state), volatile=True).type(FloatTensor)).data
+        Q = Q.numpy()
+        index = np.argmax(Q)
+        action = self.index_to_action(index)
+
+        if np.random.random() > self.epsilon:
+            if action not in actions:
+                self.reward -= 0.1
+                self.old_action = self.action_to_int(action)
+                action = random.choice(actions)
+            else:
+                self.old_action = self.action_to_int(action)
+
         else:
-            agent_state[i] = -1
-        if gameState.getAgentState(i).scaredTimer >0:
-            scared[i]=1
-    wall = np.append(wall, agent_state)
-    wall = np.append(wall, scared)
+            action = random.choice(actions)
+            self.old_action = self.action_to_int(action)
 
-    return wall
+        foodList = self.getFood(gameState).asList()
+        if len(foodList) > 0:  # This should always be True,  but better safe than sorry
+            myPos = gameState.getAgentState(self.index).getPosition()
+            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+            self.last_distance = minDistance
 
-  def pick_best_allowed_action(self,Q_values,allowed_actions):
-      actions=['North','South','East','West','Stop']
-      value_list=list(zip(actions,Q_values))
-      while True:
-        action=max(value_list, key=lambda x: x[1])
-        if action[0] in allowed_actions:
-            return action[0]
-        else:
-            value_list.remove(action)
+        self.old_state = state
+        return action
 
-  def action_to_int(self,action):
-      if action =='North':
-          return 0
-      elif action =='South':
-          return 1
-      elif action =='East':
-          return 2
-      elif action =='West':
-          return 3
-      elif action =='Stop':
-          return 4
-
-
-
-
-  def chooseAction(self, gameState):
-    """
-    Picks among actions randomly.
-    """
-    self.time += 1
-    state = self.state_to_input(gameState)
-    if self.time > 1:
+    def finalUpdate(self, winner, gameState):
+        state = self.state_to_input(gameState)
         self.update_reward(gameState)
-        reward = Tensor([self.reward])
-        memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]), torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
-        optimize_model()
-        if self.time % TARGET_UPDATE == 0:
-            target_net.load_state_dict(policy_net.state_dict())
-
-
-    actions = gameState.getLegalActions(self.index)
-    # You can profile your evaluation time by uncommenting these lines
-    # start = time.time()
-    # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
-    Q = policy_net(
-        # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
-        Variable(torch.from_numpy(state), volatile=True).type(FloatTensor)).data
-    Q = Q.numpy()
-    if np.random.random() > self.epsilon:
-        action=self.pick_best_allowed_action(Q,actions)
-    else:
-        action = random.choice(actions)
-
-    self.old_state=state
-    self.old_action=self.action_to_int(action)
-    return action
-
-  def finalUpdate(self,winner,gameState):
-      state = self.state_to_input(gameState)
-      self.update_reward(gameState)
-      if winner=='Red':
-        if self.red:
-            self.reward+=1
-        else:
-            self.reward -= 1
-      elif winner=='Blue':
+        '''if winner=='Red':
           if self.red:
-              self.reward -= 1
+              self.reward+=1
           else:
-              self.reward += 1
-      else:
-          self.reward -= 0.1
+              self.reward -= 1
+        elif winner=='Blue':
+            if self.red:
+                self.reward -= 1
+            else:
+                self.reward += 1
+        else:
+            self.reward -= 0.1'''
 
-      reward = Tensor([self.reward])
-      memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
-                  torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
-      optimize_model()
-      torch.save(policy_net,'policy_net')
-      print(policy_net.state_dict())
-      with open("memo.file", "wb") as f:
-          pickle.dump(memory, f, pickle.HIGHEST_PROTOCOL)
+        reward = Tensor([self.reward])
+        memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
+                    torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
+        optimize_model()
+        torch.save(policy_net, 'policy_net')
+        with open("memo.file", "wb") as f:
+            pickle.dump(memory, f, pickle.HIGHEST_PROTOCOL)
