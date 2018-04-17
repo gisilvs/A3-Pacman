@@ -100,16 +100,23 @@ class DQN(nn.Module):
         # todo: sort shapes
         self.conv1 = nn.Conv2d(6, 16, 3)
         self.conv2 = nn.Conv2d(16, 32, 3)
-        self.fc3 = nn.Linear(30 * 14 * 32, 256)
+        self.fc3 = nn.Linear(30*14*32, 256)
         self.fc4 = nn.Linear(256, 5)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
+        x=x.view(-1,self.num_flat_features(x))
         x = F.relu(self.fc3(x))
         x = self.fc4(x)
         return x
 
+    def num_flat_features(self, x):
+        size = x.size()[1:]  # all dimensions except the batch dimension
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
 
 load = 0
 use_cuda = False
@@ -128,8 +135,8 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters(), lr=0.001)
-memory = ReplayMemory(5000)
+optimizer = optim.RMSprop(policy_net.parameters(),lr=0.0002)
+memory = ReplayMemory(10000)
 if load == 1:
     with open("memo.file", "rb") as f:
         memory = pickle.load(f)
@@ -178,17 +185,11 @@ class NNAgent(CaptureAgent):
         foodList = self.getFood(gameState).asList()
         myPos = gameState.getAgentState(self.index).getPosition()
         minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-        if minDistance < self.last_distance:
-            self.reward += 1
-        else:
-            self.reward -= 0.001
-        '''
-  
-        self.reward -= 0.1 * minDistance
+
         self.reward+=0.01*self.getScore(gameState)
         self.reward-=0.001*len(self.getFood(gameState).asList())
         self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
-        self.reward-=0.00001*self.time'''
+        self.reward-=0.00001*self.time
 
     def registerInitialState(self, gameState):
         """
@@ -230,40 +231,54 @@ class NNAgent(CaptureAgent):
     def state_to_input(self, gameState):
         walls = np.array(gameState.data.layout.walls.data, dtype=int)
         capsules = np.zeros(walls.shape, dtype=int)
-        for capsule in gameState.data.capsules:
-            capsules[capsule[0], capsule[1]] = 1
-        food = np.array(gameState.data.food.data, dtype=int)
+        c1=self.getCapsulesYouAreDefending(gameState)
+        for c in c1:
+            capsules[c]+=1
+        c2=self.getCapsules(gameState)
+        for c in c2:
+            capsules[c] -= 1
+        f1=np.array(self.getFoodYouAreDefending(gameState).data,dtype=int)
+        f2=np.array(self.getFood(gameState).data,dtype=int)
+        food = f1-f2
+        my_agent=np.zeros(walls.shape, dtype=int)
+        my_pos=gameState.getAgentPosition(self.index)
+        if gameState.getAgentState(self.index).isPacman:
+            my_agent[my_pos]=1
+        else:
+            my_agent[my_pos] = -1
+        opponents = np.zeros(walls.shape, dtype=int)
+        my_mate = np.zeros(walls.shape, dtype=int)
 
-        agents = np.zeros((rows, cols), dtype=int)
         for i in range(4):
             pos = gameState.getAgentPosition(i)
-            if pos:
+            if pos and i!=self.index:
                 if gameState.isOnRedTeam(i):
                     if self.red:
-                        agents[pos[0], pos[1]] = 1
+                        if gameState.getAgentState(i).isPacman:
+                            my_mate[pos] = 1
+                        else:
+                            my_mate[pos] = -1
                     else:
-                        agents[pos[0], pos[1]] = -1
+                        if gameState.getAgentState(i).isPacman:
+                            opponents[pos] = 1
+                        else:
+                            opponents[pos] = -1
                 else:
                     if self.red:
-                        agents[pos[0], pos[1]] = -1
+                        if gameState.getAgentState(i).isPacman:
+                            opponents[pos] = 1
+                        else:
+                            opponents[pos] = -1
                     else:
-                        agents[pos[0], pos[1]] = 1
-        # todo:add probabilities
-        agents = agents.reshape(-1, 1)
-        wall = np.append(wall, agents)
-        agent_state = np.zeros(4, dtype=int)
-        scared = np.zeros(4, dtype=int)
-        for i in range(4):
-            if gameState.getAgentState(i).isPacman:
-                agent_state[i] = 1
-            else:
-                agent_state[i] = -1
-            if gameState.getAgentState(i).scaredTimer > 0:
-                scared[i] = 1
-        wall = np.append(wall, agent_state)
-        wall = np.append(wall, scared)
+                        if gameState.getAgentState(i).isPacman:
+                            my_mate[pos] = 1
+                        else:
+                            my_mate[pos] = -1
 
-        return wall
+
+        # todo:add probabilities,scared
+        state_tensor=np.stack((walls,food,capsules,my_agent,my_mate,opponents))
+        return state_tensor
 
     def pick_best_allowed_action(self, Q_values, allowed_actions):
         actions = ['North', 'South', 'East', 'West', 'Stop']
@@ -312,7 +327,7 @@ class NNAgent(CaptureAgent):
         # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
         Q = policy_net(
             # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
-            Variable(torch.from_numpy(state), volatile=True).type(FloatTensor)).data
+            Variable(torch.from_numpy(state).unsqueeze(0).type(Tensor), volatile=True).type(FloatTensor)).data
         Q = Q.numpy()
         index = np.argmax(Q)
         action = self.index_to_action(index)
@@ -341,7 +356,7 @@ class NNAgent(CaptureAgent):
     def finalUpdate(self, winner, gameState):
         state = self.state_to_input(gameState)
         self.update_reward(gameState)
-        '''if winner=='Red':
+        if winner=='Red':
           if self.red:
               self.reward+=1
           else:
@@ -352,7 +367,7 @@ class NNAgent(CaptureAgent):
             else:
                 self.reward += 1
         else:
-            self.reward -= 0.1'''
+            self.reward -= 0.1
 
         reward = Tensor([self.reward])
         memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
