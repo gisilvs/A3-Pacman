@@ -166,12 +166,16 @@ class NNAgent(CaptureAgent):
         self.optimizer.step()
 
     def update_reward(self, gameState):
-        self.reward+=(self.last_distance-self.distance)
+        reward=1*(self.last_distance-self.distance)
         food_in_belly=gameState.getAgentState(self.index).numCarrying
         food_returned=gameState.getAgentState(self.index).numReturned
+        reward+=10*(food_in_belly-self.last_food_in_belly)
+        reward+=100*(food_returned-self.last_food_returned)
         if food_in_belly!=0 or food_returned!=0:
             a=0
-        return self.reward#+10*food_in_belly+100*food_returned
+        self.last_food_in_belly=food_in_belly
+        self.last_food_returned=food_returned
+        return reward
 
         '''
         self.reward+=0.01*self.getScore(gameState)
@@ -212,7 +216,7 @@ class NNAgent(CaptureAgent):
             self.policy_net.cuda()
             self.target_net.cuda()
 
-        self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.0002,eps=0.99,weight_decay=0.99)
+        self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.0002)
         self.memory = ReplayMemory(10000)
         if load == 1:
             with open("memo_h.file", "rb") as f:
@@ -229,8 +233,12 @@ class NNAgent(CaptureAgent):
         self.time = 0
         # self.alpha=0.00001
         self.old_q = None
-        self.epsilon = 0.2
+        self.epsilon = 0
+
+        ###Parameters for reward
         self.last_distance = 0
+        self.last_food_in_belly=0
+        self.last_food_returned=0
 
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
@@ -348,7 +356,7 @@ class NNAgent(CaptureAgent):
 
         if np.random.random() > self.epsilon:
             if action not in actions:
-                self.reward -= 0.1
+                #self.reward -= 0.1
                 self.old_action = self.action_to_int(action)
                 action = random.choice(actions)
             else:
