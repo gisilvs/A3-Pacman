@@ -218,8 +218,9 @@ class NNAgent(CaptureAgent):
         self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.0002)
         self.memory = ReplayMemory(10000)
         if load == 1:
-            with open("memo_h.file", "rb") as f:
-                self.memory = pickle.load(f)
+            if open("memo_h.file", "rb"):
+                with open("memo_h.file", "rb") as f:
+                    self.memory = pickle.load(f)
 
         self.BATCH_SIZE = 32
         self.TARGET_UPDATE = 10
