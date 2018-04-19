@@ -169,10 +169,9 @@ class NNAgent(CaptureAgent):
         reward=1*(self.last_distance-self.distance)
         food_in_belly=gameState.getAgentState(self.index).numCarrying
         food_returned=gameState.getAgentState(self.index).numReturned
-        reward+=10*(food_in_belly-self.last_food_in_belly)
-        reward+=100*(food_returned-self.last_food_returned)
-        if food_in_belly!=0 or food_returned!=0:
-            a=0
+        if food_in_belly>=self.last_food_in_belly:
+            reward+=10*(food_in_belly-self.last_food_in_belly)
+        reward+=10*(food_returned-self.last_food_returned)
         self.last_food_in_belly=food_in_belly
         self.last_food_returned=food_returned
         return reward
@@ -233,7 +232,7 @@ class NNAgent(CaptureAgent):
         self.time = 0
         # self.alpha=0.00001
         self.old_q = None
-        self.epsilon = 0
+        self.epsilon = 0.3
 
         ###Parameters for reward
         self.last_distance = 0
@@ -301,7 +300,7 @@ class NNAgent(CaptureAgent):
 
     def pick_best_allowed_action(self, Q_values, allowed_actions):
         actions = ['North', 'South', 'East', 'West', 'Stop']
-        value_list = list(zip(actions, Q_values))
+        value_list = list(zip(actions, Q_values.ravel()))
         while True:
             action = max(value_list, key=lambda x: x[1])
             if action[0] in allowed_actions:
@@ -356,9 +355,8 @@ class NNAgent(CaptureAgent):
 
         if np.random.random() > self.epsilon:
             if action not in actions:
-                #self.reward -= 0.1
+                action = self.pick_best_allowed_action(Q, actions)
                 self.old_action = self.action_to_int(action)
-                action = random.choice(actions)
             else:
                 self.old_action = self.action_to_int(action)
 
@@ -414,6 +412,9 @@ class ReflexCaptureAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
+        food_in_belly = gameState.getAgentState(self.index).numCarrying
+        if food_in_belly>0:
+            a=0
         actions = gameState.getLegalActions(self.index)
 
         # You can profile your evaluation time by uncommenting these lines
