@@ -190,7 +190,7 @@ class NNAgent(CaptureAgent):
         self.reward-=0.001*len(self.getFood(gameState).asList())
         self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
         self.reward-=0.00001*self.time
-        self.reward-=0.0001*minDistance
+        self.reward-=0.01*minDistance
 
     def registerInitialState(self, gameState):
         """
