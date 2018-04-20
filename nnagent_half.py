@@ -79,7 +79,7 @@ class DQN(nn.Module):
         return num_features
 
 
-use_cuda = False
+use_cuda = torch.cuda.is_available()
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
@@ -207,7 +207,10 @@ class NNAgent(CaptureAgent):
         self.policy_net = DQN()
         self.target_net = DQN()
         if load == 1:
-            self.policy_net = torch.load('policy_net_h')
+            try:
+                self.policy_net = torch.load('policy_net_h1')
+            except:
+                print('COULDNT LOAD')
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
@@ -218,9 +221,12 @@ class NNAgent(CaptureAgent):
         self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.0002)
         self.memory = ReplayMemory(10000)
         if load == 1:
-            if open("memo_h.file", "rb"):
+            try:
+                open("memo_h.file", "rb")
                 with open("memo_h.file", "rb") as f:
                     self.memory = pickle.load(f)
+            except:
+                print('COULDNT LOAD')
 
         self.BATCH_SIZE = 32
         self.TARGET_UPDATE = 10
