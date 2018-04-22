@@ -94,8 +94,11 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-    def count(self):
-        self.counter+=1
+    def count1(self):
+        self.counter += 1
+
+    def reset_counter(self):
+        self.counter=1
 
 
 class DQN(nn.Module):
@@ -140,21 +143,21 @@ BATCH_SIZE = 32
 TARGET_UPDATE = 10
 GAMMA = 0.99
 MEMORY = ReplayMemory(10000)
-load_memory=1
-load_net=1
+load_memory=0
+load_net=0
 
 if load_memory == 1:
     try:
-        with open("memo_10.file", "rb") as f:
+        with open("silver_memo.file", "rb") as f:
             MEMORY = pickle.load(f)
-            MEMORY.count=1
+            MEMORY.reset_counter()
             print('MEMORY LOADED')
     except:
         print('COULDNT LOAD MEMORY')
 
 if load_net == 1:
     try:
-        policy_net = torch.load('policy_net_nomem')
+        policy_net = torch.load('silver_net')
         print('NET LOADED')
     except:
         print('COULDNT LOAD NET')
@@ -252,7 +255,7 @@ class NNAgent(CaptureAgent):
         self.time = 0
         # self.alpha=0.00001
         self.old_q = None
-        self.epsilon = 0.3
+        self.epsilon = 0
 
         ###Parameters for reward
         self.last_distance = 0
@@ -399,29 +402,29 @@ class NNAgent(CaptureAgent):
         reward=self.update_reward(gameState)
         if winner=='Red':
           if self.red:
-              reward+=1
+              reward+=100
           else:
-              reward -= 1
+              reward -= 100
         elif winner=='Blue':
             if self.red:
-                reward -= 1
+                reward -= 100
             else:
-                reward += 1
+                reward += 100
         else:
-            reward -= 0.1
+            reward -= 10
 
         reward = Tensor([reward])
         MEMORY.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
                     None, reward)
         optimize_model()
         if MEMORY.counter>0 and MEMORY.counter%10==0:
-            with open("memo_10.file", "wb") as f:
+            with open("silver_memo.file", "wb") as f:
                 pickle.dump(MEMORY, f, pickle.HIGHEST_PROTOCOL)
                 print('SAVING MEMORY')
-            torch.save(policy_net, 'policy_net_nomem')
+            torch.save(policy_net, 'silver_net')
             print('SAVING NET')
             print('Iteration ',MEMORY.counter)
-        MEMORY.count()
+        MEMORY.count1()
 
 
 class ReflexCaptureAgent(CaptureAgent):

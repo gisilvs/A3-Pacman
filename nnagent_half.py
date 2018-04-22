@@ -27,6 +27,47 @@ from torch.autograd import Variable
 import pickle
 
 
+def optimize_model():
+    if len(MEMORY) < BATCH_SIZE:
+        return
+    transitions = MEMORY.sample(BATCH_SIZE)
+    # Transpose the batch (see http://stackoverflow.com/a/19343/3343043 for
+    # detailed explanation).
+    batch = Transition(*zip(*transitions))
+
+    # Compute a mask of non-final states and concatenate the batch elements
+    non_final_mask = ByteTensor(tuple(map(lambda s: s is not None,
+                                          batch.next_state)))
+    non_final_next_states = Variable(torch.cat([s for s in batch.next_state
+                                                if s is not None]),
+                                     volatile=True)
+    state_batch = Variable(torch.cat(batch.state))
+    action_batch = Variable(torch.cat(batch.action))
+    reward_batch = Variable(torch.cat(batch.reward))
+
+    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+    # columns of actions taken
+    state_action_values = policy_net(state_batch).gather(1, action_batch)
+
+    # Compute V(s_{t+1}) for all next states.
+    next_state_values = Variable(torch.zeros(BATCH_SIZE).type(Tensor))
+    index = policy_net(non_final_next_states).max(1)[1]
+    next_state_values[non_final_mask] = target_net(non_final_next_states)[np.arange(index.size()[0]), index]
+    # Compute the expected Q values
+    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    # Undo volatility (which was used to prevent unnecessary gradients)
+    expected_state_action_values = Variable(expected_state_action_values.data)
+
+    # Compute Huber loss
+    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+
+    # Optimize the model
+    optimizer.zero_grad()
+    loss.backward()
+    for param in policy_net.parameters():
+        param.grad.data.clamp_(-1, 1)
+    optimizer.step()
+
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
@@ -38,6 +79,7 @@ class ReplayMemory(object):
         self.capacity = capacity
         self.memory = []
         self.position = 0
+        self.counter=1
 
     def push(self, *args):
         """Saves a transition."""
@@ -51,6 +93,9 @@ class ReplayMemory(object):
 
     def __len__(self):
         return len(self.memory)
+
+    def count(self):
+        self.counter+=1
 
 
 class DQN(nn.Module):
@@ -85,12 +130,42 @@ LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
 
-
+policy_net = DQN()
+target_net = DQN()
 
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
+BATCH_SIZE = 32
+TARGET_UPDATE = 10
+GAMMA = 0.99
+MEMORY = ReplayMemory(10000)
+load_memory=1
+load_net=1
 
+if load_memory == 1:
+    try:
+        with open("/output/silver_memo.file", "rb") as f:
+            MEMORY = pickle.load(f)
+            MEMORY.counter=1
+            print('MEMORY LOADED')
+    except:
+        print('COULDNT LOAD MEMORY')
+
+if load_net == 1:
+    try:
+        policy_net = torch.load('/output/silver_net')
+        print('NET LOADED')
+    except:
+        print('COULDNT LOAD NET')
+target_net.load_state_dict(policy_net.state_dict())
+target_net.eval()
+
+if use_cuda:
+    policy_net.cuda()
+    target_net.cuda()
+
+optimizer = optim.RMSprop(policy_net.parameters(), lr=0.0002)
 
 
 #################
@@ -125,51 +200,18 @@ class NNAgent(CaptureAgent):
     create an agent as this is the bare minimum.
     """
 
-    def optimize_model(self):
-        if len(self.memory) < self.BATCH_SIZE:
-            return
-        transitions = self.memory.sample(self.BATCH_SIZE)
-        # Transpose the batch (see http://stackoverflow.com/a/19343/3343043 for
-        # detailed explanation).
-        batch = Transition(*zip(*transitions))
-
-        # Compute a mask of non-final states and concatenate the batch elements
-        non_final_mask = ByteTensor(tuple(map(lambda s: s is not None,
-                                              batch.next_state)))
-        non_final_next_states = Variable(torch.cat([s for s in batch.next_state
-                                                    if s is not None]),
-                                         volatile=True)
-        state_batch = Variable(torch.cat(batch.state))
-        action_batch = Variable(torch.cat(batch.action))
-        reward_batch = Variable(torch.cat(batch.reward))
-
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-        # columns of actions taken
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-
-        # Compute V(s_{t+1}) for all next states.
-        next_state_values = Variable(torch.zeros(self.BATCH_SIZE).type(Tensor))
-        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0]
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
-        # Undo volatility (which was used to prevent unnecessary gradients)
-        expected_state_action_values = Variable(expected_state_action_values.data)
-
-        # Compute Huber loss
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-
-        # Optimize the model
-        self.optimizer.zero_grad()
-        loss.backward()
-        for param in self.policy_net.parameters():
-            param.grad.data.clamp_(-1, 1)
-        self.optimizer.step()
-
     def update_reward(self, gameState):
-        reward=1*(self.last_distance-self.distance)
-        food_in_belly=gameState.getAgentState(self.index).numCarrying
-        food_returned=gameState.getAgentState(self.index).numReturned
-        if food_in_belly>=self.last_food_in_belly:
+
+        reward= -0.1 #for time step
+        if self.old_action==4:
+            reward-=0.1
+
+        food_in_belly = gameState.getAgentState(self.index).numCarrying
+        food_returned = gameState.getAgentState(self.index).numReturned
+        if food_in_belly==0:
+            reward+=(self.last_distance-self.distance)
+
+        if food_in_belly>self.last_food_in_belly:
             reward+=10*(food_in_belly-self.last_food_in_belly)
         reward+=10*(food_returned-self.last_food_returned)
         self.last_food_in_belly=food_in_belly
@@ -203,35 +245,6 @@ class NNAgent(CaptureAgent):
         on initialization time, please take a look at
         CaptureAgent.registerInitialState in captureAgents.py.
         '''
-        load = 1
-        self.policy_net = DQN()
-        self.target_net = DQN()
-        if load == 1:
-            try:
-                self.policy_net = torch.load('policy_net_h1')
-            except:
-                print('COULDNT LOAD')
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()
-
-        if use_cuda:
-            self.policy_net.cuda()
-            self.target_net.cuda()
-
-        self.optimizer = optim.RMSprop(self.policy_net.parameters(), lr=0.0002)
-        self.memory = ReplayMemory(10000)
-        if load == 1:
-            try:
-                open("memo_h.file", "rb")
-                with open("memo_h.file", "rb") as f:
-                    self.memory = pickle.load(f)
-            except:
-                print('COULDNT LOAD')
-
-        self.BATCH_SIZE = 32
-        self.TARGET_UPDATE = 10
-        self.GAMMA = 0.99
-
         self.old_state = None
         self.old_action = None
         self.name = 'Steven'
@@ -343,17 +356,17 @@ class NNAgent(CaptureAgent):
         state = self.state_to_input(gameState)
         if self.time > 1:
             reward = Tensor([self.update_reward(gameState)])
-            self.memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
+            MEMORY.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
                         torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
-            self.optimize_model()
-            if self.time % self.TARGET_UPDATE == 0:
-                self.target_net.load_state_dict(self.policy_net.state_dict())
+            optimize_model()
+            if self.time % TARGET_UPDATE == 0:
+                target_net.load_state_dict(policy_net.state_dict())
 
         actions = gameState.getLegalActions(self.index)
         # You can profile your evaluation time by uncommenting these lines
         # start = time.time()
         # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
-        Q = self.policy_net(
+        Q = policy_net(
             # Variable(self.state_to_input(gameState), volatile=True).type(FloatTensor)).data.max(1)[1].view(1, 1)
             Variable(torch.from_numpy(state).unsqueeze(0).type(Tensor), volatile=True).type(FloatTensor)).data
         Q = Q.numpy()
@@ -362,8 +375,8 @@ class NNAgent(CaptureAgent):
 
         if np.random.random() > self.epsilon:
             if action not in actions:
-                action = self.pick_best_allowed_action(Q, actions)
                 self.old_action = self.action_to_int(action)
+                action = random.choice(actions)
             else:
                 self.old_action = self.action_to_int(action)
 
@@ -383,26 +396,32 @@ class NNAgent(CaptureAgent):
 
     def finalUpdate(self, winner, gameState):
         state = self.state_to_input(gameState)
+        reward=self.update_reward(gameState)
         if winner=='Red':
           if self.red:
-              self.reward+=1
+              reward+=100
           else:
-              self.reward -= 1
+              reward -= 100
         elif winner=='Blue':
             if self.red:
-                self.reward -= 1
+                reward -= 100
             else:
-                self.reward += 1
+                reward += 100
         else:
-            self.reward -= 0.1
+            reward -= 10
 
-        reward = Tensor([self.update_reward(gameState)])
-        self.memory.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
-                    torch.from_numpy(state).unsqueeze(0).type(Tensor), reward)
-        self.optimize_model()
-        torch.save(self.policy_net, 'policy_net_h')
-        with open("memo_h.file", "wb") as f:
-            pickle.dump(self.memory, f, pickle.HIGHEST_PROTOCOL)
+        reward = Tensor([reward])
+        MEMORY.push(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
+                    None, reward)
+        optimize_model()
+        if MEMORY.counter>0 and MEMORY.counter%10==0:
+            with open("/output/silver_memo.file", "wb") as f:
+                pickle.dump(MEMORY, f, pickle.HIGHEST_PROTOCOL)
+                print('SAVING MEMORY')
+            torch.save(policy_net, '/output/silver_net')
+            print('SAVING NET')
+            print('Iteration ',MEMORY.counter)
+        MEMORY.count()
 
 
 class ReflexCaptureAgent(CaptureAgent):
