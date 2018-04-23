@@ -30,14 +30,21 @@ import pickle
 def optimize_model():
     if MEMORY.tree.samples < BATCH_SIZE:
         return
-    transitions = MEMORY.sample(BATCH_SIZE)
-    # Transpose the batch (see http://stackoverflow.com/a/19343/3343043 for
-    # detailed explanation).
-    indices=[x[0] for x in transitions]
-    priorities=[x[1] for x in transitions]
-    tr=[x[2] for x in transitions]
+    good=False
+    while not good:
+        try:
+            transitions = MEMORY.sample(BATCH_SIZE)
+            # Transpose the batch (see http://stackoverflow.com/a/19343/3343043 for
+            # detailed explanation).
+            indices=[x[0] for x in transitions]
+            priorities=[x[1] for x in transitions]
+            tr=[x[2] for x in transitions]
 
-    batch = Transition(*zip(*tr))
+            batch = Transition(*zip(*tr))
+            good=True
+        except:
+            print('PROBLEM FOUND')
+            good=False
     P=priorities/MEMORY.tree.total()
     w=(MEMORY.tree.capacity*P)**(-MEMORY.b)
     max_w=np.max(w)
@@ -228,9 +235,10 @@ REPLAY_PERIOD=4
 load_memory=1
 load_net=1
 
+
 if load_memory == 1:
     try:
-        with open("silver_memo_per.file", "rb") as f:
+        with open("red_memo.file", "rb") as f:
             MEMORY = pickle.load(f)
             MEMORY.reset_counter()
             print('MEMORY LOADED')
@@ -239,7 +247,7 @@ if load_memory == 1:
 
 if load_net == 1:
     try:
-        policy_net = torch.load('silver_net_per')
+        policy_net = torch.load('red_net')
         print('NET LOADED')
     except:
         print('COULDNT LOAD NET')
@@ -258,7 +266,7 @@ optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00025/4)
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first='NNAgent', second='DefensiveReflexAgent'):
+               first='NNAgent', second='NNAgent'):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
@@ -292,7 +300,7 @@ class NNAgent(CaptureAgent):
             reward-=0.1
 
         foodLeft = len(self.getFood(gameState).asList())
-        if foodLeft <= 2:
+        if foodLeft <= 2 and gameState.getAgentState(self.index).isPacman:
             reward+= 10*self.last_distance_to_start-self.getMazeDistance(gameState.getAgentPosition(self.index),self.start)
 
         food_in_belly = gameState.getAgentState(self.index).numCarrying
@@ -305,14 +313,8 @@ class NNAgent(CaptureAgent):
         reward+=10*(food_returned-self.last_food_returned)
         self.last_food_in_belly=food_in_belly
         self.last_food_returned=food_returned
-        return reward
 
-        '''
-        self.reward+=0.01*self.getScore(gameState)
-        self.reward-=0.001*len(self.getFood(gameState).asList())
-        self.reward+=0.001*len(self.getFoodYouAreDefending(gameState).asList())
-        self.reward-=0.00001*self.time'''
-        #self.reward-=0.01*minDistance
+        return reward
 
 
     def registerInitialState(self, gameState):
@@ -340,9 +342,11 @@ class NNAgent(CaptureAgent):
         self.reward = 0
         self.time = 0
         self.update=0
-        # self.alpha=0.00001
         self.old_q = None
-        self.epsilon = 0.3
+        if self.index ==0:
+            self.epsilon = 0.3
+        elif self.index ==2:
+            self.epsilon = 0.5
 
         ###Parameters for reward
         self.last_distance = 0
@@ -405,15 +409,6 @@ class NNAgent(CaptureAgent):
                             my_mate[pos] = 1
                         else:
                             my_mate[pos] = -1
-            elif not pos:
-                noisy_distance = gameState.getAgentDistances()[i]
-                for row in range(opponents.shape[0]):
-                    for col in range(opponents.shape[1]):
-                        if walls[row, col] == 0:
-                            opponents_prob[row, col] += gameState.getDistanceProb(
-                                util.manhattanDistance(gameState.getAgentPosition(self.index), (row, col)),
-                                noisy_distance)
-
 
             if gameState.getAgentState(i).scaredTimer > 0:
                 if gameState.isOnRedTeam(i):
@@ -490,11 +485,12 @@ class NNAgent(CaptureAgent):
             transition=Transition(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor), LongTensor([[self.old_action]]),
                         torch.from_numpy(state).unsqueeze(0).type(Tensor), reward_t)
             MEMORY.add(error,transition)
-            if self.time % REPLAY_PERIOD ==0:
-                optimize_model()
-                self.update+=1
-            if self.update % TARGET_UPDATE == 0:
-                target_net.load_state_dict(policy_net.state_dict())
+            if self.index==0:
+                if self.time % REPLAY_PERIOD ==0:
+                    optimize_model()
+                    self.update+=1
+                if self.update % TARGET_UPDATE == 0:
+                    target_net.load_state_dict(policy_net.state_dict())
 
         actions = gameState.getLegalActions(self.index)
         # You can profile your evaluation time by uncommenting these lines
@@ -532,29 +528,22 @@ class NNAgent(CaptureAgent):
         return action
 
     def finalUpdate(self, gameState):
-        state = self.state_to_input(gameState)
         reward=self.update_reward(gameState)
-        if self.red:
-            reward+=gameState.getScore()*0
-        else:
-            reward-=gameState.getScore()*0
-        if gameState.getScore()==0:
-            reward -= 0
-
         error=np.abs(reward-self.old_q)
         reward = Tensor([reward])
         transition = Transition(torch.from_numpy(self.old_state).unsqueeze(0).type(Tensor),
                                 LongTensor([[self.old_action]]),
                                 None, reward)
         MEMORY.add(error,transition)
-        if MEMORY.counter>0 and MEMORY.counter%20==0:
-            with open("silver_memo_per.file", "wb") as f:
+        if MEMORY.counter>0 and MEMORY.counter%20==0 and self.index==0:
+            with open("red_memo.file", "wb") as f:
                 pickle.dump(MEMORY, f, pickle.HIGHEST_PROTOCOL)
                 print('SAVING MEMORY')
-            torch.save(policy_net, 'silver_net_per')
+            torch.save(policy_net, 'red_net')
             print('SAVING NET')
             print('Iteration ',MEMORY.counter)
-        MEMORY.count1()
+        if self.index==0:
+            MEMORY.count1()
 
 
 class ReflexCaptureAgent(CaptureAgent):
