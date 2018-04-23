@@ -187,7 +187,7 @@ class DQN(nn.Module):
     def __init__(self):
         super(DQN, self).__init__()
         # todo: sort shapes
-        self.conv1 = nn.Conv2d(6, 16, 3)
+        self.conv1 = nn.Conv2d(7, 16, 3)
         self.conv2 = nn.Conv2d(16, 32, 3)
         self.fc3 = nn.Linear(30*14*32, 256)
         self.fc4 = nn.Linear(256, 5)
@@ -250,7 +250,7 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters(), lr=0.0002)
+optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00025/4)
 
 
 #################
@@ -290,6 +290,10 @@ class NNAgent(CaptureAgent):
         reward= -0.1 #for time step
         if self.old_action==4:
             reward-=0.1
+
+        foodLeft = len(self.getFood(gameState).asList())
+        if foodLeft <= 2:
+            reward+= 10*self.last_distance_to_start-self.getMazeDistance(gameState.getAgentPosition(self.index),self.start)
 
         food_in_belly = gameState.getAgentState(self.index).numCarrying
         food_returned = gameState.getAgentState(self.index).numReturned
@@ -344,6 +348,7 @@ class NNAgent(CaptureAgent):
         self.last_distance = 0
         self.last_food_in_belly=0
         self.last_food_returned=0
+        self.last_distance_to_start=0
 
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
@@ -370,8 +375,10 @@ class NNAgent(CaptureAgent):
             my_agent[my_pos]=1
         else:
             my_agent[my_pos] = -1
-        opponents = np.zeros(walls.shape, dtype=int)
+        opponents = np.zeros(walls.shape,dtype=int)
+        opponents_prob= np.zeros(walls.shape)
         my_mate = np.zeros(walls.shape, dtype=int)
+        is_scared=np.zeros(walls.shape)
 
         for i in range(4):
             pos = gameState.getAgentPosition(i)
@@ -398,10 +405,43 @@ class NNAgent(CaptureAgent):
                             my_mate[pos] = 1
                         else:
                             my_mate[pos] = -1
+            elif not pos:
+                noisy_distance = gameState.getAgentDistances()[i]
+                for row in range(opponents.shape[0]):
+                    for col in range(opponents.shape[1]):
+                        if walls[row, col] == 0:
+                            opponents_prob[row, col] += gameState.getDistanceProb(
+                                util.manhattanDistance(gameState.getAgentPosition(self.index), (row, col)),
+                                noisy_distance)
 
 
-        # todo:add probabilities,scared
-        state_tensor=np.stack((walls,food,capsules,my_agent,my_mate,opponents))
+            if gameState.getAgentState(i).scaredTimer > 0:
+                if gameState.isOnRedTeam(i):
+                    if self.red:
+                        if i !=self.index:
+                            is_scared-=my_mate
+                        else:
+                            is_scared-=my_agent
+                    else:
+                        if pos:
+                            is_scared-=opponents
+                        #else:
+                            #is_scared+=opponents_prob
+
+                else:
+                    if self.red:
+                        if pos:
+                            is_scared-=opponents
+                        #else:
+                            #is_scared+=opponents_prob
+                    else:
+                        if i !=self.index:
+                            is_scared-=my_mate
+                        else:
+                            is_scared-=my_agent
+
+        #scared
+        state_tensor=np.stack((walls,food,capsules,my_agent,my_mate,opponents,is_scared))
         return state_tensor
 
     def pick_best_allowed_action(self, Q_values, allowed_actions):
@@ -481,30 +521,25 @@ class NNAgent(CaptureAgent):
         self.old_q=Q[self.old_action]
 
         foodList = self.getFood(gameState).asList()
+        myPos = gameState.getAgentState(self.index).getPosition()
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
-            myPos = gameState.getAgentState(self.index).getPosition()
             minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
             self.last_distance = minDistance
 
         self.old_state = state
         self.last_distance=self.distance
+        self.last_distance_to_start=self.distancer.getDistance(myPos,gameState.getInitialAgentPosition(self.index))
         return action
 
-    def finalUpdate(self, winner, gameState):
+    def finalUpdate(self, gameState):
         state = self.state_to_input(gameState)
         reward=self.update_reward(gameState)
-        if winner=='Red':
-          if self.red:
-              reward+=1
-          else:
-              reward -= 1
-        elif winner=='Blue':
-            if self.red:
-                reward -= 1
-            else:
-                reward += 1
+        if self.red:
+            reward+=gameState.getScore()*0
         else:
-            reward -= 0.1
+            reward-=gameState.getScore()*0
+        if gameState.getScore()==0:
+            reward -= 0
 
         error=np.abs(reward-self.old_q)
         reward = Tensor([reward])
