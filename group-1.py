@@ -73,11 +73,8 @@ load_memory=1
 load_net=1
 
 if load_net == 1:
-    try:
-        policy_net = torch.load('silver_net_per')
-        print('NET LOADED')
-    except:
-        print('COULDNT LOAD NET')
+    policy_net = torch.load('silver_net_per')
+
 
 if use_cuda:
     policy_net.cuda()

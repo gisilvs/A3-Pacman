@@ -194,10 +194,10 @@ class DQN(nn.Module):
     def __init__(self):
         super(DQN, self).__init__()
         # todo: sort shapes
-        self.conv1 = nn.Conv2d(7, 16, 3)
-        self.conv2 = nn.Conv2d(16, 32, 3)
-        self.fc3 = nn.Linear(30*14*32, 256)
-        self.fc4 = nn.Linear(256, 5)
+        self.conv1 = nn.Conv2d(7, 32, 3)
+        self.conv2 = nn.Conv2d(32, 64, 3)
+        self.fc3 = nn.Linear(30*14*64, 512)
+        self.fc4 = nn.Linear(512, 5)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -297,11 +297,50 @@ class NNAgent(CaptureAgent):
 
         reward= -0.1 #for time step
         if self.old_action==4:
-            reward-=0.1
+            reward-=0.5
 
         foodLeft = len(self.getFood(gameState).asList())
         if foodLeft <= 2 and gameState.getAgentState(self.index).isPacman:
-            reward+= 10*self.last_distance_to_start-self.getMazeDistance(gameState.getAgentPosition(self.index),self.start)
+            reward+= 10*(self.last_distance_to_start-self.getMazeDistance(gameState.getAgentPosition(self.index),self.start))
+
+        #####
+        my_pos=gameState.getAgentPosition(self.index)
+        me_pacman=gameState.getAgentState(self.index).isPacman
+        me_scared=gameState.getAgentState(self.index).scaredTimer
+        opponent_indices=self.getOpponents(gameState)
+        opponent_seen=[gameState.getAgentPosition(i) for i in opponent_indices]
+        opponent_is_pacman=[gameState.getAgentState(i).isPacman for i in opponent_indices]
+        opponent_is_scared=[gameState.getAgentState(i).scaredTimer for i in opponent_indices]
+        opponent_distance=[]
+        for i,opponent in enumerate(opponent_indices):
+            if opponent_seen[i]:
+                opponent_distance.append(self.getMazeDistance(my_pos,opponent_seen[i]))
+                if not self.last_opponent_distance[i]:
+                    self.last_opponent_distance[i]=opponent_distance[i]
+                if opponent_is_pacman[i]:
+                    if not me_pacman:
+                        if me_scared==0:
+                            reward+=(10/(opponent_distance[i]**2))*(self.last_opponent_distance[i]-opponent_distance[i])
+                        else:
+                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                else:
+                    if me_pacman:
+                        if opponent_is_scared[i]==0:
+                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+            else:
+                opponent_distance.append(None)
+                if self.last_opponent_distance[i]:
+                    if self.last_opponent_distance[i]<=2:
+                        if not self.last_me_pacman:
+                            if not me_pacman and not opponent_is_pacman[i]:
+                                reward+=20
+
+
+
+        self.last_opponent_distance=opponent_distance
+        self.last_me_pacman=me_pacman
+
+        #####
 
         food_in_belly = gameState.getAgentState(self.index).numCarrying
         food_returned = gameState.getAgentState(self.index).numReturned
@@ -346,13 +385,15 @@ class NNAgent(CaptureAgent):
         if self.index ==0:
             self.epsilon = 0.3
         elif self.index ==2:
-            self.epsilon = 0.5
+            self.epsilon = 0.1
 
         ###Parameters for reward
         self.last_distance = 0
         self.last_food_in_belly=0
         self.last_food_returned=0
         self.last_distance_to_start=0
+        self.last_opponent_distance=[None,None]
+        self.last_me_pacman=False
 
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
