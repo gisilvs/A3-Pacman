@@ -258,7 +258,7 @@ if use_cuda:
     policy_net.cuda()
     target_net.cuda()
 
-optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00025/4)
+optimizer = optim.RMSprop(policy_net.parameters(), lr=0.00025/40)
 
 
 #################
@@ -317,16 +317,19 @@ class NNAgent(CaptureAgent):
                 opponent_distance.append(self.getMazeDistance(my_pos,opponent_seen[i]))
                 if not self.last_opponent_distance[i]:
                     self.last_opponent_distance[i]=opponent_distance[i]
-                if opponent_is_pacman[i]:
-                    if not me_pacman:
-                        if me_scared==0:
-                            reward+=(10/(opponent_distance[i]**2))*(self.last_opponent_distance[i]-opponent_distance[i])
-                        else:
-                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
-                else:
-                    if me_pacman:
-                        if opponent_is_scared[i]==0:
-                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                try:
+                    if opponent_is_pacman[i]:
+                        if not me_pacman:
+                            if me_scared==0:
+                                reward+=(10/(opponent_distance[i]**2))*(self.last_opponent_distance[i]-opponent_distance[i])
+                            else:
+                                reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                    else:
+                        if me_pacman:
+                            if opponent_is_scared[i]==0:
+                                reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                except:
+                    a=0
             else:
                 opponent_distance.append(None)
                 if self.last_opponent_distance[i]:
@@ -383,9 +386,9 @@ class NNAgent(CaptureAgent):
         self.update=0
         self.old_q = None
         if self.index ==0:
-            self.epsilon = 0.3
+            self.epsilon = 0
         elif self.index ==2:
-            self.epsilon = 0.1
+            self.epsilon = 0
 
         ###Parameters for reward
         self.last_distance = 0
