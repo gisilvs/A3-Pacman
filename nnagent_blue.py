@@ -194,10 +194,10 @@ class DQN(nn.Module):
     def __init__(self):
         super(DQN, self).__init__()
         # todo: sort shapes
-        self.conv1 = nn.Conv2d(7, 32, 3)
-        self.conv2 = nn.Conv2d(32, 64, 3)
-        self.fc3 = nn.Linear(30*14*64, 512)
-        self.fc4 = nn.Linear(512, 5)
+        self.conv1 = nn.Conv2d(7, 16, 3)
+        self.conv2 = nn.Conv2d(16, 32, 3)
+        self.fc3 = nn.Linear(30*14*32, 256)
+        self.fc4 = nn.Linear(256, 5)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -224,6 +224,9 @@ Tensor = FloatTensor
 policy_net = DQN()
 target_net = DQN()
 
+FOOD_EATEN = 0
+FOOD_RETURNED = 0
+
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
@@ -238,7 +241,7 @@ load_net=1
 
 if load_memory == 1:
     try:
-        with open("red_memo.file", "rb") as f:
+        with open("blue_memo_1.file", "rb") as f:
             MEMORY = pickle.load(f)
             MEMORY.reset_counter()
             print('MEMORY LOADED')
@@ -247,7 +250,7 @@ if load_memory == 1:
 
 if load_net == 1:
     try:
-        policy_net = torch.load('red_net')
+        policy_net = torch.load('blue_net_1')
         print('NET LOADED')
     except:
         print('COULDNT LOAD NET')
@@ -293,6 +296,7 @@ class NNAgent(CaptureAgent):
     create an agent as this is the bare minimum.
     """
 
+
     def update_reward(self, gameState):
 
         reward= -0.1 #for time step
@@ -317,16 +321,20 @@ class NNAgent(CaptureAgent):
                 opponent_distance.append(self.getMazeDistance(my_pos,opponent_seen[i]))
                 if not self.last_opponent_distance[i]:
                     self.last_opponent_distance[i]=opponent_distance[i]
-                if opponent_is_pacman[i]:
-                    if not me_pacman:
-                        if me_scared==0:
-                            reward+=(10/(opponent_distance[i]**2))*(self.last_opponent_distance[i]-opponent_distance[i])
-                        else:
-                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
-                else:
-                    if me_pacman:
-                        if opponent_is_scared[i]==0:
-                            reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+
+                try:
+                    if opponent_is_pacman[i]:
+                        if not me_pacman:
+                            if me_scared==0:
+                                reward+=(10/(opponent_distance[i]**2))*(self.last_opponent_distance[i]-opponent_distance[i])
+                            else:
+                                reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                    else:
+                        if me_pacman:
+                            if opponent_is_scared[i]==0:
+                                reward -= (10/(opponent_distance[i]**2)) * (self.last_opponent_distance[i] - opponent_distance[i])
+                except:
+                    a = 0
             else:
                 opponent_distance.append(None)
                 if self.last_opponent_distance[i]:
@@ -349,6 +357,11 @@ class NNAgent(CaptureAgent):
 
         if food_in_belly>self.last_food_in_belly:
             reward+=10*(food_in_belly-self.last_food_in_belly)
+            global FOOD_EATEN
+            FOOD_EATEN += 1
+        if food_returned > self.last_food_returned:
+            global FOOD_RETURNED
+            FOOD_RETURNED += food_returned - self.last_food_returned
         reward+=10*(food_returned-self.last_food_returned)
         self.last_food_in_belly=food_in_belly
         self.last_food_returned=food_returned
@@ -375,6 +388,11 @@ class NNAgent(CaptureAgent):
         on initialization time, please take a look at
         CaptureAgent.registerInitialState in captureAgents.py.
         '''
+        global FOOD_EATEN
+        FOOD_EATEN = 0
+        global FOOD_RETURNED
+        FOOD_RETURNED = 0
+
         self.old_state = None
         self.old_action = None
         self.name = 'Steven'
@@ -577,15 +595,24 @@ class NNAgent(CaptureAgent):
                                 None, reward)
         MEMORY.add(error,transition)
         if MEMORY.counter>0 and MEMORY.counter%20==0 and self.index==1:
-            with open("red_memo.file", "wb") as f:
+            with open("blue_memo_1.file", "wb") as f:
                 pickle.dump(MEMORY, f, pickle.HIGHEST_PROTOCOL)
                 print('SAVING MEMORY')
-            torch.save(policy_net, 'red_net')
+            torch.save(policy_net, 'blue_net_1')
             print('SAVING NET')
             print('Iteration ',MEMORY.counter)
         if self.index==1:
             MEMORY.count1()
 
+            with open('food_eaten.txt', 'a') as f:
+                global FOOD_EATEN
+                f.write(str(FOOD_EATEN) + '\n')
+            with open('food_returned.txt', 'a') as g:
+                global FOOD_RETURNED
+                g.write(str(FOOD_RETURNED) + '\n')
+            with open('score.txt', 'a') as h:
+                score = self.getScore(gameState) # minus since blue team
+                h.write(str(score) + '\n')
 
 class ReflexCaptureAgent(CaptureAgent):
     """
