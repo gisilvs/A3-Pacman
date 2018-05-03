@@ -91,6 +91,8 @@ def optimize_model():
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
+
+'''The classes SumTree and ReplayMemory are adapted from https://github.com/jaara/AI-blog'''
 class SumTree:
     write = 0
 

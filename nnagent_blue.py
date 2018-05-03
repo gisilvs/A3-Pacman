@@ -1,4 +1,4 @@
-# myTeam.py
+# myTeam.py1
 # ---------
 # Licensing Information:  You are free to use or extend these projects for
 # educational purposes provided that (1) you do not distribute or publish
@@ -241,7 +241,7 @@ load_net=1
 
 if load_memory == 1:
     try:
-        with open("blue_memo_1.file", "rb") as f:
+        with open("blue_mem.file", "rb") as f:
             MEMORY = pickle.load(f)
             MEMORY.reset_counter()
             print('MEMORY LOADED')
@@ -250,7 +250,7 @@ if load_memory == 1:
 
 if load_net == 1:
     try:
-        policy_net = torch.load('blue_net_1')
+        policy_net = torch.load('blue_ne')
         print('NET LOADED')
     except:
         print('COULDNT LOAD NET')
@@ -401,9 +401,9 @@ class NNAgent(CaptureAgent):
         self.update=0
         self.old_q = None
         if self.index ==1:
-            self.epsilon = 0.3
+            self.epsilon = 0
         elif self.index ==3:
-            self.epsilon = 0.1
+            self.epsilon = 0
 
         ###Parameters for reward
         self.last_distance = 0
@@ -595,10 +595,10 @@ class NNAgent(CaptureAgent):
                                 None, reward)
         MEMORY.add(error,transition)
         if MEMORY.counter>0 and MEMORY.counter%20==0 and self.index==1:
-            with open("blue_memo_1.file", "wb") as f:
+            with open("blue_mem.file", "wb") as f:
                 pickle.dump(MEMORY, f, pickle.HIGHEST_PROTOCOL)
                 print('SAVING MEMORY')
-            torch.save(policy_net, 'blue_net_1')
+            torch.save(policy_net, 'blue_ne')
             print('SAVING NET')
             print('Iteration ',MEMORY.counter)
         if self.index==1:

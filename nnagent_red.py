@@ -235,6 +235,8 @@ REPLAY_PERIOD=4
 load_memory=1
 load_net=1
 
+FOOD_EATEN=0
+
 
 if load_memory == 1:
     try:
@@ -351,6 +353,8 @@ class NNAgent(CaptureAgent):
             reward+=(self.last_distance-self.distance)
 
         if food_in_belly>self.last_food_in_belly:
+            global FOOD_EATEN
+            FOOD_EATEN+=1
             reward+=10*(food_in_belly-self.last_food_in_belly)
         reward+=10*(food_returned-self.last_food_returned)
         self.last_food_in_belly=food_in_belly
@@ -378,6 +382,8 @@ class NNAgent(CaptureAgent):
         on initialization time, please take a look at
         CaptureAgent.registerInitialState in captureAgents.py.
         '''
+        global FOOD_EATEN
+        FOOD_EATEN=0
         self.old_state = None
         self.old_action = None
         self.name = 'Steven'
